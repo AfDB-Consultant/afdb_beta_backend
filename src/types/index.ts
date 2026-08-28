@@ -8,8 +8,13 @@ export interface IUser {
   role: 'admin' | 'staff' | 'viewer';
   mfaEnabled: boolean;
   mfaSecret?: string;
+  ssoProvider?: string;
+  ssoId?: string;
   isActive: boolean;
+  loginAttempts: number;
+  lockUntil?: Date;
   lastLogin?: Date;
+  passwordChangedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }

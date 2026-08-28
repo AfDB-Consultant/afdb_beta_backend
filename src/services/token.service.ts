@@ -8,9 +8,9 @@ import { JwtPayload } from '../types';
 
 export class TokenService {
   generateAccessToken(payload: JwtPayload): string {
-    return jwt.sign(payload, config.jwt.accessSecret, {
+    return jwt.sign(payload as object, config.jwt.accessSecret, {
       expiresIn: config.jwt.accessExpiry,
-    });
+    } as jwt.SignOptions);
   }
 
   generateRefreshToken(): string {

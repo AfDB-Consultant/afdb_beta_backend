@@ -1,7 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { tokenService } from '../services/token.service';
 import { authService } from '../services/auth.service';
-import { AuthRequest } from '../types';
+import { AuthRequest, IUser } from '../types';
 import { logger } from '../config/logger';
 
 export async function authenticate(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -21,7 +21,7 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return;
     }
 
-    req.user = user;
+    req.user = user as unknown as IUser;
     next();
   } catch (error) {
     logger.warn('Token verification failed:', error);

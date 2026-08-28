@@ -20,6 +20,15 @@ export const config = {
   sso: {
     sharedSecret: process.env.SSO_SHARED_SECRET || 'dev-shared-secret',
     tokenExpiryMinutes: parseInt(process.env.SSO_TOKEN_EXPIRY_MINUTES || '5', 10),
+    // Google OAuth2
+    googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/api/v1/sso/callback/google',
+    // Microsoft / Azure AD
+    microsoftClientId: process.env.MICROSOFT_CLIENT_ID || '',
+    microsoftClientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
+    microsoftTenantId: process.env.MICROSOFT_TENANT_ID || 'common',
+    microsoftRedirectUri: process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:4000/api/v1/sso/callback/microsoft',
   },
   core: {
     apiUrl: process.env.CORE_API_URL || 'http://localhost:4001/api/v1',

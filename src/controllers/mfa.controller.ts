@@ -15,7 +15,39 @@ export class MfaController {
     const isValid = await mfaService.verify(req.user._id.toString(), token);
     if (!isValid) { res.status(400).json({ success: false, message: 'Invalid code' }); return; }
     await mfaService.enable(req.user._id.toString());
-    res.json({ success: true, message: 'MFA enabled successfully' });
+    const backupCodes = await mfaService.generateBackupCodes(req.user._id.toString());
+    res.json({
+      success: true,
+      message: 'MFA enabled successfully',
+      data: { backupCodes },
+    });
+  }
+
+  async verifyBackupCode(req: AuthRequest, res: Response): Promise<void> {
+    if (!req.user) { res.status(401).json({ success: false, message: 'Not authenticated' }); return; }
+    const { code } = req.body;
+    const isValid = await mfaService.verifyBackupCode(req.user._id.toString(), code);
+    if (!isValid) { res.status(400).json({ success: false, message: 'Invalid backup code' }); return; }
+    const remaining = await mfaService.getRemainingBackupCodes(req.user._id.toString());
+    res.json({ success: true, message: 'Backup code verified', data: { remainingBackupCodes: remaining } });
+  }
+
+  async regenerateBackupCodes(req: AuthRequest, res: Response): Promise<void> {
+    if (!req.user) { res.status(401).json({ success: false, message: 'Not authenticated' }); return; }
+    const backupCodes = await mfaService.generateBackupCodes(req.user._id.toString());
+    res.json({ success: true, data: { backupCodes } });
+  }
+
+  async status(req: AuthRequest, res: Response): Promise<void> {
+    if (!req.user) { res.status(401).json({ success: false, message: 'Not authenticated' }); return; }
+    const remaining = await mfaService.getRemainingBackupCodes(req.user._id.toString());
+    res.json({
+      success: true,
+      data: {
+        mfaEnabled: req.user.mfaEnabled,
+        remainingBackupCodes: remaining,
+      },
+    });
   }
 
   async disable(req: AuthRequest, res: Response): Promise<void> {
