@@ -2,10 +2,18 @@ import { Request, Response } from 'express';
 import { authService } from '../services/auth.service';
 import { tokenService } from '../services/token.service';
 import { mfaService } from '../services/mfa.service';
+import { activityEmitter } from '../services/activityEmitter.service';
 import { AuthRequest, JwtPayload } from '../types';
 import { logger } from '../config/logger';
 
 export class AuthController {
+  private getClientInfo(req: Request) {
+    return {
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+    };
+  }
+
   async login(req: Request, res: Response): Promise<void> {
     const { email, password } = req.body;
 
@@ -20,10 +28,27 @@ export class AuthController {
     if (!user) {
       // Check if account is locked
       const attemptedUser = await authService.findByEmail(email);
+
+      // Emit failed login for known users immediately (before any early returns)
+      if (attemptedUser) {
+        activityEmitter.emit({
+          action: 'auth.login_failed', userId: attemptedUser._id.toString(),
+          userName: `${attemptedUser.firstName} ${attemptedUser.lastName}`, userEmail: attemptedUser.email,
+          severity: 'warning', status: 'failure',
+          ...this.getClientInfo(req),
+        });
+      }
+
       if (attemptedUser) {
         const lockInfo = authService.getLockoutInfo(attemptedUser);
         if (lockInfo.isLocked) {
           const minutesLeft = Math.ceil(((lockInfo.lockUntil?.getTime() || 0) - Date.now()) / 60000);
+          activityEmitter.emit({
+            action: 'auth.account_locked', userId: attemptedUser._id.toString(),
+            userName: `${attemptedUser.firstName} ${attemptedUser.lastName}`, userEmail: attemptedUser.email,
+            severity: 'critical', status: 'failure', details: { minutesRemaining: minutesLeft },
+            ...this.getClientInfo(req),
+          });
           res.status(423).json({
             success: false,
             message: `Account locked. Try again in ${minutesLeft} minutes.`,
@@ -44,27 +69,8 @@ export class AuthController {
       return;
     }
 
-    if (user.mfaEnabled) {
-      res.json({ success: true, message: 'MFA required', data: { mfaRequired: true, userId: user._id } });
-      return;
-    }
-
-    const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
-    const accessToken = tokenService.generateAccessToken(payload);
-    const refreshToken = tokenService.generateRefreshToken();
-
-    await tokenService.storeRefreshToken(user._id.toString(), refreshToken);
-    await authService.updateLastLogin(user._id.toString());
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        accessToken,
-        refreshToken,
-        user: { id: user._id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.role },
-      },
-    });
+    // Always require email OTP verification after successful credentials
+    res.json({ success: true, message: 'OTP verification required', data: { mfaRequired: true, userId: user._id } });
   }
 
   async verifyMfa(req: Request, res: Response): Promise<void> {
@@ -79,6 +85,12 @@ export class AuthController {
     }
 
     if (!isValid) {
+      activityEmitter.emit({
+        action: 'auth.mfa_failed', userId, userName: 'Unknown',
+        severity: 'warning', status: 'failure',
+        details: { method: backupCode ? 'backup_code' : 'totp' },
+        ...this.getClientInfo(req),
+      });
       res.status(401).json({ success: false, message: 'Invalid MFA token' });
       return;
     }
@@ -94,6 +106,14 @@ export class AuthController {
     await authService.updateLastLogin(user._id.toString());
 
     const remainingBackupCodes = await mfaService.getRemainingBackupCodes(userId);
+
+    activityEmitter.emit({
+      action: 'auth.mfa_verified', userId: user._id.toString(),
+      userName: `${user.firstName} ${user.lastName}`, userEmail: user.email,
+      severity: 'info', status: 'success',
+      details: { remainingBackupCodes },
+      ...this.getClientInfo(req),
+    });
 
     res.json({
       success: true,
@@ -139,6 +159,13 @@ export class AuthController {
 
     const user = await authService.createUser({ email, password, firstName, lastName });
 
+    activityEmitter.emit({
+      action: 'auth.signup', userId: user._id.toString(),
+      userName: `${firstName} ${lastName}`, userEmail: email,
+      severity: 'info', status: 'success',
+      ...this.getClientInfo(req),
+    });
+
     const payload: JwtPayload = { userId: user._id.toString(), email: user.email, role: user.role };
     const accessToken = tokenService.generateAccessToken(payload);
     const refreshToken = tokenService.generateRefreshToken();
@@ -169,6 +196,14 @@ export class AuthController {
     }
     // Revoke all existing tokens after password change
     await tokenService.revokeAllUserTokens(req.user._id.toString());
+
+    activityEmitter.emit({
+      action: 'auth.password_changed', userId: req.user._id.toString(),
+      userName: `${req.user.firstName} ${req.user.lastName}`, userEmail: req.user.email,
+      severity: 'info', status: 'success',
+      ...this.getClientInfo(req),
+    });
+
     res.json({ success: true, message: result.message });
   }
 
@@ -190,11 +225,24 @@ export class AuthController {
     const newRefreshToken = tokenService.generateRefreshToken();
     await tokenService.storeRefreshToken(user._id.toString(), newRefreshToken);
 
+    activityEmitter.emit({
+      action: 'auth.token_refresh', userId: user._id.toString(),
+      userName: `${user.firstName} ${user.lastName}`, userEmail: user.email,
+      severity: 'info', status: 'success',
+      ...this.getClientInfo(req),
+    });
+
     res.json({ success: true, message: 'Token refreshed', data: { accessToken: newAccessToken, refreshToken: newRefreshToken } });
   }
 
   async logout(req: AuthRequest, res: Response): Promise<void> {
     if (req.user) {
+      activityEmitter.emit({
+        action: 'auth.logout', userId: req.user._id,
+        userName: `${req.user.firstName} ${req.user.lastName}`, userEmail: req.user.email,
+        severity: 'info', status: 'success',
+        ...this.getClientInfo(req as unknown as Request),
+      });
       await tokenService.revokeAllUserTokens(req.user._id.toString());
     }
     res.json({ success: true, message: 'Logged out successfully' });
