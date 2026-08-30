@@ -37,21 +37,48 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate Docker Hub credentials
+        run: |
+          # Trim whitespace from token
+          TOKEN=$(echo -n "${{ secrets.DOCKERHUB_TOKEN }}" | tr -d '[:space:]')
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
+
+          if [ -z "$TOKEN" ] || [ -z "$USERNAME" ]; then
+            echo "✗ ERROR: DOCKERHUB_TOKEN or DOCKERHUB_USERNAME secret is empty"
+            exit 1
+          fi
+
+          # Test login via Docker Hub API
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"${USERNAME}\", \"password\": \"${TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/)
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ Docker Hub credentials are valid"
+          else
+            echo "✗ ERROR: Docker Hub login failed (HTTP ${HTTP_CODE})"
+            echo "  → Go to https://hub.docker.com/settings/security"
+            echo "  → Generate a new Personal Access Token"
+            echo "  → Update DOCKERHUB_TOKEN in GitHub Secrets"
+            exit 1
+          fi
+
       - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          TOKEN=$(echo -n "${{ secrets.DOCKERHUB_TOKEN }}" | tr -d '[:space:]')
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
+          printf "%s" "$TOKEN" | docker login -u "$USERNAME" --password-stdin
 
       - name: Build and push beta-backend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-${{ github.sha }}
+        run: |
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
+          docker build -t ${USERNAME}/afdb:beta-backend-latest -t ${USERNAME}/afdb:beta-backend-${{ github.sha }} .
+          docker push ${USERNAME}/afdb:beta-backend-latest
+          docker push ${USERNAME}/afdb:beta-backend-${{ github.sha }}
+          echo "✓ Pushed ${USERNAME}/afdb:beta-backend-latest"
+          echo "✓ Pushed ${USERNAME}/afdb:beta-backend-${{ github.sha }}"
 
   # ── Job 2: Deploy on EC2 via Self-Hosted Runner ────────────
   deploy:
@@ -62,10 +89,15 @@ jobs:
 
     steps:
       - name: Login to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+        run: |
+          TOKEN=$(echo -n "${{ secrets.DOCKERHUB_TOKEN }}" | tr -d '[:space:]')
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
+          printf "%s" "$TOKEN" | docker login -u "$USERNAME" --password-stdin
 
       - name: Pull latest image from Docker Hub
-        run: docker pull ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
+        run: |
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
+          docker pull ${USERNAME}/afdb:beta-backend-latest
 
       - name: Stop existing container
         run: |
@@ -74,6 +106,7 @@ jobs:
 
       - name: Run beta-backend container
         run: |
+          USERNAME=$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}" | tr -d '[:space:]')
           docker run -d \
             --name afdb-beta-backend \
             --restart always \
@@ -98,7 +131,7 @@ jobs:
             -e SMTP_USER="${{ secrets.SMTP_USER }}" \
             -e SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}" \
             -e SMTP_FROM="${{ secrets.SMTP_FROM }}" \
-            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
+            ${USERNAME}/afdb:beta-backend-latest
 
       - name: Verify container is running
         run: |
