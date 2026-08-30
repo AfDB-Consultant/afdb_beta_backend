@@ -3,11 +3,21 @@
 # ═══════════════════════════════════════════════════════════════
 #  Automatically deploys to AWS EC2 when code is pushed to main.
 #
+#  Runner: self-hosted "aws-ec2-afdb" on EC2
+#  Docker Hub: deputee/afdb (single repo, tags per service)
+#
 #  Required GitHub Secrets:
-#    EC2_HOST       — Your EC2 public IP
-#    EC2_USER       — SSH username (usually "ubuntu")
-#    EC2_SSH_KEY    — Your EC2 private key (.pem file contents)
-#    DEPLOY_DIR     — Deployment directory on EC2 (default: ~/afdb-platform)
+#    DOCKERHUB_USERNAME  — Docker Hub username (deputee)
+#    DOCKERHUB_TOKEN     — Docker Hub personal access token
+#    MONGODB_URI         — MongoDB Atlas connection string
+#    REDIS_PASSWORD      — Redis password
+#    JWT_ACCESS_SECRET   — JWT access token secret
+#    JWT_REFRESH_SECRET  — JWT refresh token secret
+#    INTERNAL_API_KEY    — Internal API key (beta ↔ core)
+#    SSO_SHARED_SECRET   — SSO federation shared secret
+#    SMTP_PASSWORD       — SMTP email password
+#    DOMAIN              — Production domain
+#    CORS_ORIGINS        — Allowed CORS origins
 # ═══════════════════════════════════════════════════════════════
 
 name: Deploy to AWS
@@ -18,41 +28,87 @@ on:
   workflow_dispatch: # Allow manual trigger
 
 jobs:
-  deploy:
-    name: Deploy to EC2
+  # ── Job 1: Build & Push to Docker Hub ───────────────────────
+  build:
+    name: Build & Push Images
     runs-on: ubuntu-latest
-    environment: production  # Requires approval in GitHub
 
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        env:
-          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '~/afdb-platform' }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            # Use environment variable (passed securely, not from event payloads)
-            DIR="${DEPLOY_DIR}"
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            echo "→ Pulling latest code..."
-            for dir in afdb_beta_backend afdb_beta_frontend afdb_core_backend afdb_core_frontend; do
-              if [ -d "${DIR}/${dir}" ]; then
-                cd "${DIR}/${dir}"
-                git pull origin main
-              fi
-            done
+      - name: Build and push beta-backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-${{ github.sha }}
 
-            echo "→ Rebuilding services..."
-            cd "${DIR}/afdb_beta_backend/deploy"
-            docker compose up -d --build
+  # ── Job 2: Deploy on EC2 via Self-Hosted Runner ────────────
+  deploy:
+    name: Deploy on EC2
+    runs-on: aws-ec2-afdb  # Self-hosted runner on EC2
+    needs: build
+    environment: production
 
-            echo "→ Cleaning up old images..."
-            docker image prune -f
+    steps:
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-            echo "→ Service status:"
-            docker compose ps
+      - name: Pull latest image from Docker Hub
+        run: docker pull ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
 
-            echo "✓ Deployment complete!"
+      - name: Stop existing container
+        run: |
+          docker stop afdb-beta-backend 2>/dev/null || true
+          docker rm afdb-beta-backend 2>/dev/null || true
+
+      - name: Run beta-backend container
+        run: |
+          docker run -d \
+            --name afdb-beta-backend \
+            --restart always \
+            -p 4000:4000 \
+            -e PORT=4000 \
+            -e NODE_ENV=production \
+            -e MONGODB_URI="${{ secrets.MONGODB_URI }}" \
+            -e REDIS_HOST="${{ secrets.REDIS_HOST }}" \
+            -e REDIS_PORT=6379 \
+            -e REDIS_PASSWORD="${{ secrets.REDIS_PASSWORD }}" \
+            -e JWT_ACCESS_SECRET="${{ secrets.JWT_ACCESS_SECRET }}" \
+            -e JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
+            -e JWT_ACCESS_EXPIRY=30m \
+            -e JWT_REFRESH_EXPIRY=30d \
+            -e SSO_SHARED_SECRET="${{ secrets.SSO_SHARED_SECRET }}" \
+            -e SSO_TOKEN_EXPIRY_MINUTES=5 \
+            -e CORE_API_URL="${{ secrets.CORE_API_URL }}" \
+            -e CORE_API_KEY="${{ secrets.INTERNAL_API_KEY }}" \
+            -e CORS_ORIGINS="${{ secrets.CORS_ORIGINS }}" \
+            -e SMTP_HOST="${{ secrets.SMTP_HOST }}" \
+            -e SMTP_PORT="${{ secrets.SMTP_PORT }}" \
+            -e SMTP_USER="${{ secrets.SMTP_USER }}" \
+            -e SMTP_PASSWORD="${{ secrets.SMTP_PASSWORD }}" \
+            -e SMTP_FROM="${{ secrets.SMTP_FROM }}" \
+            ${{ secrets.DOCKERHUB_USERNAME }}/afdb:beta-backend-latest
+
+      - name: Verify container is running
+        run: |
+          echo "→ Container status:"
+          docker ps --filter name=afdb-beta-backend --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+          echo ""
+          echo "→ Container logs (last 10 lines):"
+          docker logs --tail 10 afdb-beta-backend
+          echo ""
+          echo "✓ Deployment complete!"
+
+      - name: Cleanup old images
+        run: docker image prune -f
