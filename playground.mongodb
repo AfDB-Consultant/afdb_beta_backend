@@ -1,0 +1,38 @@
+// MongoDB Playground for AfDB Beta Backend
+// Requires: MongoDB for VS Code extension
+// Connection: mongodb+srv://atradezonecloud_db_user:***@afdbcluster.1m7peek.mongodb.net/
+
+// Switch to the afdb_beta database
+use('afdb_beta');
+
+// ─── List all collections ───
+db.getCollectionNames();
+
+// ─── View all users ───
+db.users.find({});
+
+// ─── Count users by role ───
+db.users.aggregate([
+  { $group: { _id: "$role", count: { $sum: 1 } } },
+  { $sort: { count: -1 } }
+]);
+
+// ─── View all tokens ───
+db.tokens.find({});
+
+// ─── Find admin user ───
+db.users.findOne({ role: "admin" });
+
+// ─── Find user by email ───
+db.users.findOne({ email: "afdbadmin@yopmail.com" });
+
+// ─── View user count ───
+db.users.countDocuments();
+
+// ─── Check indexes on users ───
+db.users.getIndexes();
+
+// ─── View recent activity (last 5 users updated) ───
+db.users.find({}, { email: 1, firstName: 1, lastName: 1, role: 1, lastLogin: 1, updatedAt: 1 })
+  .sort({ updatedAt: -1 })
+  .limit(5);

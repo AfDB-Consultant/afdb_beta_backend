@@ -1,16 +1,64 @@
+<div align="center">
+
 # AfDB Beta Backend — Authentication Gateway
 
-> Authentication gateway for the African Development Bank secure access portal. Handles email OTP verification, MFA (TOTP), JWT token issuance/refresh, SSO-IDP federation, professional email delivery, and fetches authorized user data from the Core platform via secure internal APIs.
+### Live Reference Application — Consultancy Proposal Support
+
+<br/>
+
+| | |
+|---|---|
+| **Prepared By** | [Eng. Depute N.Alphonse, PMP®](https://atradezone.ca/deputenalphonse) |
+| **Role** | Senior Web Frontend Developer Consultant (TCIS) |
+| **Live API** | [afdb-api.atradezone.ca](https://afdb-api.atradezone.ca) |
+| **API Docs** | [afdb-api.atradezone.ca/api-docs](https://afdb-api.atradezone.ca/api-docs) |
+| **GitHub Org** | [github.com/AfDB-Consultant](https://github.com/AfDB-Consultant) |
+
+</div>
+
+---
+
+## About This Application
+
+> Words on a page can say a lot. Code says more.
+
+This is a **live reference application** built as the core deliverable for **Section 10: Added Value — Live Reference Application** of the consultancy proposal for **Senior Web Frontend Developer Consultant (TCIS)** at the African Development Bank.
+
+Rather than describing capabilities on paper, this application **demonstrates them in practice** — a working, production-deployed enterprise system that evaluators can inspect, interact with, and verify. The accompanying [Technical Documentation](https://afdb-beta.atradezone.ca/docs) and [User Manual](https://afdb-beta.atradezone.ca/docs/user-manual.html) serve as supporting documents for this live reference.
+
+### What This Repo Does
+
+This is the **Beta Tier Backend** — the authentication gateway sitting in front of the Core platform:
+
+- **Email OTP Verification** — 6-digit codes for login, registration, and password reset (stored in Redis with 10-min TTL)
+- **MFA (TOTP)** — Authenticator app-based 2FA with 10 backup codes
+- **JWT Lifecycle** — Access token (30min) + refresh token (30 days)
+- **SSO-IDP Federation** — OAuth2/OIDC with Google Workspace and Microsoft Azure AD
+- **Professional Email Templates** — Branded HTML emails with embedded AfDB logo
+- **OWASP Top 10 Compliance** — Input sanitization, rate limiting, security headers
+- **Secure Internal API Calls** — To `afdb_core_backend` via authenticated internal APIs
 
 ## Technology Stack
-- **Runtime:** Node.js 20 LTS
-- **Framework:** Express.js
-- **Language:** TypeScript
-- **Database:** MongoDB (user records) + Redis (OTP storage, sessions/cache)
-- **Auth:** JWT (access + refresh tokens), MFA (TOTP), Email OTP (6-digit codes), SSO-IDP shared-secret validation
-- **Email:** Nodemailer with professional HTML templates (CID logo embedding)
-- **Queue:** BullMQ (async jobs)
-- **Docs:** Swagger/OpenAPI (Scalar)
+
+| Layer | Technology |
+|-------|-----------|
+| **Runtime** | Node.js 20 LTS |
+| **Framework** | Express.js |
+| **Language** | TypeScript |
+| **Database** | MongoDB Atlas (user records) + Redis 7 (OTP storage, sessions/cache) |
+| **Auth** | JWT (access + refresh tokens), MFA (TOTP), Email OTP, SSO-IDP |
+| **Email** | Nodemailer with professional HTML templates (CID logo embedding) |
+| **Queue** | BullMQ (async jobs) |
+| **Docs** | Swagger/OpenAPI (Scalar) |
+| **CI/CD** | GitHub Actions → Docker Hub → AWS EC2 |
+
+## Live URLs
+
+| Service | URL |
+|---------|-----|
+| **Auth API** | [https://afdb-api.atradezone.ca](https://afdb-api.atradezone.ca) |
+| **API Documentation** | [https://afdb-api.atradezone.ca/api-docs](https://afdb-api.atradezone.ca/api-docs) |
+| **Health Check** | [https://afdb-api.atradezone.ca/health](https://afdb-api.atradezone.ca/health) |
 
 ## Getting Started
 
@@ -22,50 +70,20 @@ npm run dev
 API runs on [http://localhost:4000/api/v1](http://localhost:4000/api/v1)
 
 ### Prerequisites
-- MongoDB running on port 27017 (or 27018)
+- MongoDB Atlas or local MongoDB on port 27017
 - Redis running on port 6379
 - SMTP credentials configured in `.env`
-
-### Environment Variables (SMTP)
-
-```env
-SMTP_HOST=smtp.hostinger.com
-SMTP_PORT=465
-SMTP_USER=no-reply@atradezone.ca
-SMTP_PASSWORD=<your-smtp-password>
-SMTP_FROM=no-reply@atradezone.ca
-```
-
-## Repository Purpose
-This is the **Beta tier backend** — the authentication layer sitting in front of the Core platform:
-- **Email OTP Verification** — 6-digit codes for login, registration, and password reset (stored in Redis with 10-min TTL)
-- **MFA (TOTP)** — Authenticator app-based 2FA with 10 backup codes
-- **JWT Lifecycle** — Access token (30min) + refresh token (30 days)
-- **SSO-IDP Federation** — OAuth2/OIDC with Google Workspace and Microsoft Azure AD
-- **Professional Email Templates** — Branded HTML emails with embedded AfDB logo
-- **Role & Permission Propagation** — MongoDB → Redis
-- **Secure Internal API Calls** — To `afdb_core_backend`
 
 ## Email OTP Endpoints
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| POST | `/api/v1/auth/send-login-otp` | No | Send login OTP (requires `userId`) |
+| POST | `/api/v1/auth/send-login-otp` | No | Send login OTP |
 | POST | `/api/v1/auth/verify-login-otp` | No | Verify login OTP → JWT tokens |
-| POST | `/api/v1/auth/send-register-otp` | No | Send registration OTP (requires `email`) |
+| POST | `/api/v1/auth/send-register-otp` | No | Send registration OTP |
 | POST | `/api/v1/auth/verify-register-otp` | No | Verify registration OTP → create account |
-| POST | `/api/v1/auth/send-reset-otp` | No | Send password reset OTP (requires `email`) |
+| POST | `/api/v1/auth/send-reset-otp` | No | Send password reset OTP |
 | POST | `/api/v1/auth/verify-reset-otp` | No | Verify reset OTP → update password |
-| POST | `/api/v1/auth/send-otp` | Yes | Send OTP for 2FA setup (authenticated) |
-| POST | `/api/v1/auth/verify-otp` | Yes | Verify 2FA setup OTP |
-
-### OTP Architecture
-- **Code Format:** 6-digit numeric (100000–999999)
-- **Storage:** Redis with TTL-based auto-expiry
-- **Expiry:** 600 seconds (10 minutes)
-- **Key Pattern:** `{purpose}_otp:{identifier}` (e.g., `login_otp:userId`, `register_otp:email`)
-- **Security:** Single-use (deleted after verification), rate-limited endpoints
-- **Email Delivery:** SMTP via Nodemailer with embedded CID logo
 
 ## Demo Credentials
 
@@ -77,5 +95,34 @@ This is the **Beta tier backend** — the authentication layer sitting in front 
 
 > **Getting the OTP:** After login, visit [yopmail.com](https://yopmail.com) and enter the username (e.g., `afdbadmin`) to check the inbox for the 6-digit OTP code.
 
-## License
-Private — African Development Bank Consultancy Project
+## Related Repositories
+
+| Repository | Role | Live URL |
+|-----------|------|----------|
+| [`afdb_beta_frontend`](https://github.com/AfDB-Consultant/afdb_beta_frontend) | Auth Portal UI | [afdb-beta.atradezone.ca](https://afdb-beta.atradezone.ca) |
+| [`afdb_core_frontend`](https://github.com/AfDB-Consultant/afdb_core_frontend) | Enterprise Dashboard UI | [afdb-core.atradezone.ca](https://afdb-core.atradezone.ca) |
+| [`afdb_core_backend`](https://github.com/AfDB-Consultant/afdb_core_backend) | Data Engine APIs | [afdb-core-api.atradezone.ca](https://afdb-core-api.atradezone.ca) |
+
+## Proposal Reference
+
+This application is the deliverable described in **Section 10: Added Value — Live Reference Application** of the consultancy proposal:
+
+**PROPOSAL FOR CONSULTANCY SERVICES**
+**Senior Web Frontend Developer Consultant (TCIS)**
+African Development Bank
+
+| Document | Link |
+|----------|------|
+| **Consultancy Proposal** | [PROPOSAL FOR CONSULTANCY SERVICES](https://canva.link/xrt5wv0lx2rcwt5) |
+| **Technical Documentation** | [afdb-beta.atradezone.ca/docs](https://afdb-beta.atradezone.ca/docs) |
+| **User Manual** | [afdb-beta.atradezone.ca/docs/user-manual.html](https://afdb-beta.atradezone.ca/docs/user-manual.html) |
+| **Portfolio** | [atradezone.ca/deputenalphonse](https://atradezone.ca/deputenalphonse) |
+| **Curriculum Vitae** | [Canva CV](https://canva.link/wi9a7piqzdscqqg) |
+
+## Contact
+
+**Eng. Depute N.Alphonse, PMP®** — [depute@atradezone.ca](mailto:depute@atradezone.ca) — [Portfolio](https://atradezone.ca/deputenalphonse)
+
+---
+
+<div align="center">*© 2026 Eng. Depute N.Alphonse, PMP®. Open-source reference application.*</div>

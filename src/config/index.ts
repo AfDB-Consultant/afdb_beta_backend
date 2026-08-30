@@ -35,7 +35,7 @@ export const config = {
     apiKey: process.env.CORE_API_KEY || 'dev-api-key',
   },
   cors: {
-    origins: (process.env.CORS_ORIGINS || 'http://localhost:3000').split(','),
+    origins: (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:3001,null').split(','),
   },
   smtp: {
     host: process.env.SMTP_HOST || 'smtp.hostinger.com',

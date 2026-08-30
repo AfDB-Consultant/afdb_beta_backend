@@ -280,6 +280,7 @@ app.get('/api-docs.json', (_req, res) => {
 
 // Scalar — modern API documentation
 app.get('/api-docs', (_req, res) => {
+  const isDark = _req.query.dark === 'true';
   res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -288,11 +289,25 @@ app.get('/api-docs', (_req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { margin: 0; padding: 0; }
+    ${isDark ? `
+    :root { color-scheme: dark; }
+    :root, body { 
+      --scalar-background-1: #0f172a;
+      --scalar-background-2: #1e293b;
+      --scalar-background-3: #334155;
+      --scalar-color-1: #e2e8f0;
+      --scalar-color-2: #94a3b8;
+      --scalar-color-3: #64748b;
+      --scalar-border-color: #334155;
+      --scalar-theme-color: #38bdf8;
+    }
+    body { background: #0f172a; }
+    ` : ''}
   </style>
 </head>
 <body>
   <div id="scalar-container"></div>
-  <script id="api-reference" data-url="/api-docs.json"></script>
+  <script id="api-reference" data-url="/api-docs.json"${isDark ? ' data-dark-mode="true"' : ''}></script>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.25.68"></script>
 </body>
 </html>`);
