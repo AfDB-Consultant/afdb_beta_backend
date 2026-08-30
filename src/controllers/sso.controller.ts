@@ -2,11 +2,18 @@ import { Request, Response } from 'express';
 import { ssoService } from '../services/sso.service';
 import { authService } from '../services/auth.service';
 import { tokenService } from '../services/token.service';
+import { activityEmitter } from '../services/activityEmitter.service';
 import { logger } from '../config/logger';
 import { JwtPayload } from '../types';
 import { User } from '../models/user.model';
 
 export class SsoController {
+  private getClientInfo(req: Request) {
+    return {
+      ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+    };
+  }
   async handoff(req: Request, res: Response): Promise<void> {
     const { token, timestamp, userId, email, redirectUrl } = req.body;
 
@@ -161,11 +168,25 @@ export class SsoController {
       const refreshToken = tokenService.generateRefreshToken();
       await tokenService.storeRefreshToken(user._id.toString(), refreshToken);
 
+      activityEmitter.emit({
+        action: 'auth.sso_login', userId: user._id.toString(),
+        userName: `${user.firstName} ${user.lastName}`, userEmail: user.email,
+        severity: 'info', status: 'success',
+        details: { provider: providerId },
+        ...this.getClientInfo(req),
+      });
+
       // Redirect to frontend with tokens
       const frontendUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/sso/callback?accessToken=${encodeURIComponent(accessToken)}&refreshToken=${encodeURIComponent(refreshToken)}`;
       res.redirect(frontendUrl);
     } catch (error) {
       logger.error('SSO callback error:', error);
+      activityEmitter.emit({
+        action: 'auth.sso_failed', userId: 'unknown', userName: 'Unknown',
+        severity: 'warning', status: 'failure',
+        details: { provider: providerId, error: error instanceof Error ? error.message : String(error) },
+        ...this.getClientInfo(req),
+      });
       res.status(500).json({ success: false, message: 'SSO authentication failed' });
     }
   }

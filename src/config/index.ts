@@ -37,4 +37,11 @@ export const config = {
   cors: {
     origins: (process.env.CORS_ORIGINS || 'http://localhost:3000').split(','),
   },
+  smtp: {
+    host: process.env.SMTP_HOST || 'smtp.hostinger.com',
+    port: parseInt(process.env.SMTP_PORT || '465', 10),
+    user: process.env.SMTP_USER || '',
+    password: process.env.SMTP_PASSWORD || '',
+    from: process.env.SMTP_FROM || 'no-reply@atradezone.ca',
+  },
 };

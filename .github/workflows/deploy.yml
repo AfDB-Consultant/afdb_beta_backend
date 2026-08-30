@@ -1,0 +1,58 @@
+# ═══════════════════════════════════════════════════════════════
+#  AfDB Platform — GitHub Actions CI/CD
+# ═══════════════════════════════════════════════════════════════
+#  Automatically deploys to AWS EC2 when code is pushed to main.
+#
+#  Required GitHub Secrets:
+#    EC2_HOST       — Your EC2 public IP
+#    EC2_USER       — SSH username (usually "ubuntu")
+#    EC2_SSH_KEY    — Your EC2 private key (.pem file contents)
+#    DEPLOY_DIR     — Deployment directory on EC2 (default: ~/afdb-platform)
+# ═══════════════════════════════════════════════════════════════
+
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    environment: production  # Requires approval in GitHub
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '~/afdb-platform' }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            # Use environment variable (passed securely, not from event payloads)
+            DIR="${DEPLOY_DIR}"
+
+            echo "→ Pulling latest code..."
+            for dir in afdb_beta_backend afdb_beta_frontend afdb_core_backend afdb_core_frontend; do
+              if [ -d "${DIR}/${dir}" ]; then
+                cd "${DIR}/${dir}"
+                git pull origin main
+              fi
+            done
+
+            echo "→ Rebuilding services..."
+            cd "${DIR}/afdb_beta_backend/deploy"
+            docker compose up -d --build
+
+            echo "→ Cleaning up old images..."
+            docker image prune -f
+
+            echo "→ Service status:"
+            docker compose ps
+
+            echo "✓ Deployment complete!"
